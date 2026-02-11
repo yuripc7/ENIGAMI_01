@@ -14,16 +14,7 @@ const THEME_KEY = 'design_board_theme_v1';
 export const App = () => {
     const [db, setDb] = useState<DB>(() => {
         const savedDb = localStorage.getItem(STORAGE_KEY);
-        let data = savedDb ? JSON.parse(savedDb) : INITIAL_DB;
-        
-        // FORÇAR REINÍCIO DO FLUXO DE SELEÇÃO AO ABRIR
-        // Mantém os dados, mas reseta a seleção ativa
-        return {
-            ...data,
-            activeLod: "",
-            activeCompanyId: null,
-            activeProjectId: null
-        };
+        return savedDb ? JSON.parse(savedDb) : INITIAL_DB;
     });
 
     const [theme, setTheme] = useState(() => {
@@ -341,9 +332,10 @@ export const App = () => {
         }));
     };
 
-    // EXPORT HTML (Snapshot)
     const exportHTML = () => {
         const clone = document.documentElement.cloneNode(true) as HTMLElement;
+        
+        // 1. FREEZE STATE: Copy values from React inputs to HTML attributes
         const originalInputs = document.querySelectorAll('input');
         const clonedInputs = clone.querySelectorAll('input');
         originalInputs.forEach((input, i) => {
@@ -379,48 +371,84 @@ export const App = () => {
             }
         });
 
-        // Remove Scripts to ensure it's a static snapshot
+        // 2. CLEANUP: Remove React Scripts & Interactive Elements that won't work
         const scripts = clone.querySelectorAll('script');
         scripts.forEach(script => {
             const src = script.getAttribute('src') || '';
             const content = script.innerHTML || '';
+            // Keep Tailwind, remove everything else (especially module scripts that try to load React)
             if (!src.includes('tailwindcss') && !content.includes('tailwind.config')) {
                 script.remove();
             }
         });
 
-        // Cleanup UI elements for export
-        const floatingButtons = clone.querySelector('.fixed.bottom-8.right-8');
-        if (floatingButtons) floatingButtons.remove();
-        const aiChat = clone.querySelector('.fixed.bottom-28.right-8');
-        if (aiChat) aiChat.remove();
-        const openModals = clone.querySelectorAll('[data-modal-overlay="true"]');
-        openModals.forEach(el => el.remove());
-        const notifications = clone.querySelectorAll('.fixed.top-8');
-        notifications.forEach(el => el.remove());
+        const elementsToRemove = [
+            '.fixed.bottom-8.right-8', // Floating buttons
+            '.fixed.bottom-28.right-8', // AI Chat
+            '[data-modal-overlay="true"]', // Open Modals
+            '.fixed.top-8' // Notifications
+        ];
+        elementsToRemove.forEach(selector => {
+            const el = clone.querySelector(selector);
+            if(el) el.remove();
+        });
 
-        // Inject Data for Re-Import
+        // 3. DATA BACKUP: Inject current DB
         const stateScript = document.createElement('script');
         stateScript.id = "design-board-data";
         stateScript.type = "application/json";
         stateScript.textContent = JSON.stringify(db);
         clone.querySelector('body')?.appendChild(stateScript);
 
+        // 4. VIEWER SCRIPT: Add Banner & Disable Interactions
+        const viewerScript = document.createElement('script');
+        viewerScript.textContent = `
+            window.onload = function() {
+                // Banner Styling
+                const banner = document.createElement('div');
+                banner.style.cssText = 'position:fixed;top:0;left:0;right:0;height:40px;background:#E86C3F;color:white;display:flex;align-items:center;justify-content:center;font-family:sans-serif;font-weight:bold;font-size:12px;text-transform:uppercase;letter-spacing:1px;z-index:99999;box-shadow:0 2px 10px rgba(0,0,0,0.3);';
+                banner.innerHTML = '<span style="margin-right:15px;">⚠️ MODO SNAPSHOT (LEITURA)</span> <span style="opacity:0.8;font-weight:400;">| Para editar, use a opção "Carregar Backup" na aplicação original.</span>';
+                document.body.prepend(banner);
+                document.body.style.paddingTop = '40px';
+
+                // Disable Interactions
+                const disableElement = (el) => {
+                    el.style.pointerEvents = 'none';
+                    el.style.opacity = '0.7';
+                    el.setAttribute('readonly', 'true');
+                    el.setAttribute('disabled', 'true');
+                };
+
+                // Disable Inputs
+                document.querySelectorAll('input, textarea, select').forEach(disableElement);
+
+                // Disable Buttons (except maybe print if we had one specific class, but generic disable is safer)
+                document.querySelectorAll('button').forEach(btn => {
+                    // Let the print logic (if any existing native browser print) work, but disable app logic
+                    btn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); alert('Arquivo em Modo Leitura. Importe para editar.'); };
+                    btn.style.cursor = 'not-allowed';
+                    btn.title = "Modo Leitura";
+                });
+                
+                console.log("Design Board Snapshot Loaded.");
+            };
+        `;
+        clone.querySelector('body')?.appendChild(viewerScript);
+
         const htmlContent = `<!DOCTYPE html>\n${clone.outerHTML}`;
         const blob = new Blob([htmlContent], { type: 'text/html' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `dashboard-${activeProject?.name || 'export'}-${new Date().toISOString().split('T')[0]}.html`;
+        link.download = `Snapshot-${activeProject?.name || 'Projeto'}-${new Date().toISOString().split('T')[0]}.html`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
         
-        addLog("SISTEMA", "DASHBOARD EXPORTADO (SNAPSHOT COM DADOS)");
+        addLog("SISTEMA", "DASHBOARD EXPORTADO (SNAPSHOT HTML)");
     };
 
-    // IMPORT LOGIC
     const importProject = (file: File) => {
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -1108,8 +1136,8 @@ export const App = () => {
                 onClose={() => setShowAdminModal(false)}
                 onToggleTheme={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
                 onPrint={printDashboard}
-                onExport={exportHTML}
                 onImport={importProject}
+                onExport={exportHTML}
             />
 
             <DisciplinesManagerModal

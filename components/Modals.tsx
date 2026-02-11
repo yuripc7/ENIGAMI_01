@@ -24,9 +24,9 @@ export const AdminSettingsModal: React.FC<{
     onClose: () => void; 
     onToggleTheme: () => void; 
     onPrint: () => void; 
-    onExport: () => void;
     onImport?: (file: File) => void;
-}> = ({ isOpen, theme, onClose, onToggleTheme, onPrint, onExport, onImport }) => {
+    onExport?: () => void;
+}> = ({ isOpen, theme, onClose, onToggleTheme, onPrint, onImport, onExport }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     return (
@@ -56,9 +56,13 @@ export const AdminSettingsModal: React.FC<{
                             <button onClick={onPrint} className="flex items-center justify-center gap-2 p-5 bg-theme-bg border border-theme-divider text-theme-text rounded-xl hover:bg-theme-highlight transition-all text-[10px] font-black uppercase shadow-lg">
                                 <span className="material-symbols-outlined text-lg">print</span> Imprimir
                             </button>
-                            <button onClick={onExport} className="flex items-center justify-center gap-2 p-5 bg-theme-bg border border-theme-divider text-theme-text rounded-xl hover:bg-theme-highlight transition-all text-[10px] font-black uppercase shadow-lg">
-                                <span className="material-symbols-outlined text-lg">html</span> Exportar HTML
-                            </button>
+                            
+                            {onExport && (
+                                <button onClick={onExport} className="flex items-center justify-center gap-2 p-5 bg-theme-bg border border-theme-divider text-theme-text rounded-xl hover:bg-theme-highlight transition-all text-[10px] font-black uppercase shadow-lg border-l-4 border-l-theme-cyan">
+                                    <span className="material-symbols-outlined text-lg">download</span> Exportar HTML
+                                </button>
+                            )}
+
                             {onImport && (
                                 <>
                                     <input 
@@ -72,7 +76,7 @@ export const AdminSettingsModal: React.FC<{
                                         }} 
                                     />
                                     <button onClick={() => fileInputRef.current?.click()} className="col-span-2 flex items-center justify-center gap-2 p-5 bg-theme-bg border border-theme-divider text-theme-text rounded-xl hover:bg-theme-highlight transition-all text-[10px] font-black uppercase shadow-lg border-l-4 border-l-theme-green">
-                                        <span className="material-symbols-outlined text-lg">upload_file</span> Carregar Projeto
+                                        <span className="material-symbols-outlined text-lg">upload_file</span> Carregar Backup
                                     </button>
                                 </>
                             )}
@@ -83,7 +87,7 @@ export const AdminSettingsModal: React.FC<{
                     </div>
                 </div>
                 <div className="mt-8 text-center border-t border-theme-divider pt-6">
-                    <p className="text-[9px] text-theme-textMuted font-bold uppercase tracking-widest">Board Engine v2.9.2 • Tonolher</p>
+                    <p className="text-[9px] text-theme-textMuted font-bold uppercase tracking-widest">Board Engine v2.9.3 • Tonolher</p>
                 </div>
             </div>
         </ModalBase>
