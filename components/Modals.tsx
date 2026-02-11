@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Company, Project, Scope, Event, Discipline } from '../types';
+import { Company, Project, Scope, Event, Discipline, DependencyType, EventDependencyView } from '../types';
 
 interface ModalBaseProps {
     isOpen: boolean;
@@ -95,9 +95,14 @@ export const AdminSettingsModal: React.FC<{
 };
 
 export const ChecklistModal: React.FC<{
-    isOpen: boolean; event: Event | null; project: Project | null; onClose: () => void;
-    onToggleCheck: (idx: number) => void; onComplete: () => void;
-    onToggleLink: (targetId: string) => void; onChangeType: (targetId: string) => void;
+    isOpen: boolean; 
+    event: Event | null; 
+    project: Project | null; 
+    onClose: () => void;
+    onToggleCheck: (idx: number) => void; 
+    onComplete: () => void;
+    onToggleLink: (targetId: string) => void; 
+    onChangeType: (targetId: string) => void;
     onEdit: () => void;
 }> = ({ isOpen, event, project, onClose, onToggleCheck, onComplete, onToggleLink, onChangeType, onEdit }) => {
     const [searchTerm, setSearchTerm] = useState('');
@@ -122,12 +127,12 @@ export const ChecklistModal: React.FC<{
         );
     }, [allOtherEvents, searchTerm]);
 
-    const currentDependencies = useMemo(() => {
+    const currentDependencies: EventDependencyView[] = useMemo(() => {
         if (!event) return [];
         return (event.dependencies || []).map(d => {
             const target = allOtherEvents.find(e => e.id === d.id);
             return target ? { ...target, type: d.type } : null;
-        }).filter(Boolean);
+        }).filter((item): item is EventDependencyView => item !== null);
     }, [allOtherEvents, event?.dependencies]);
 
     const allDone = useMemo(() => {
@@ -136,7 +141,7 @@ export const ChecklistModal: React.FC<{
         return event.checklist.every(i => i.done);
     }, [event?.checklist]);
 
-    const DEP_DEFINITIONS = {
+    const DEP_DEFINITIONS: Record<DependencyType, { label: string; name: string; desc: string }> = {
         'FS': { label: 'TI', name: 'Término-a-Início', desc: 'A tarefa A deve terminar para B iniciar.' },
         'SS': { label: 'II', name: 'Início-a-Início', desc: 'A tarefa B pode iniciar junto com A.' },
         'FF': { label: 'TT', name: 'Término-a-Término', desc: 'A tarefa B não termina antes de A.' },
@@ -186,8 +191,8 @@ export const ChecklistModal: React.FC<{
                     </label>
                     {currentDependencies.length > 0 && (
                         <div className="flex flex-wrap gap-2 mb-4">
-                            {currentDependencies.map((dep: any) => {
-                                const def = DEP_DEFINITIONS[dep.type as keyof typeof DEP_DEFINITIONS] || { label: dep.type, name: dep.type, desc: '' };
+                            {currentDependencies.map((dep) => {
+                                const def = DEP_DEFINITIONS[dep.type] || { label: dep.type, name: dep.type, desc: '' };
                                 return (
                                     <div key={dep.id} className="bg-theme-cyan/10 border border-theme-cyan/30 px-2 py-1 rounded-lg flex items-center gap-2 group">
                                         <span className="text-[9px] font-black text-theme-cyan uppercase">{dep.scopeName}: {dep.title}</span>
@@ -233,6 +238,9 @@ export const ChecklistModal: React.FC<{
         </ModalBase>
     );
 };
+
+// ... LodModal, CompanyModal, ProjectModal, ScopeModal, EventModal, TeamModal, TimelineSettingsModal, DisciplinesManagerModal (Kept structure but cleaned up logic if needed) 
+// For brevity in XML, assuming the rest of Modals follow similar pattern. I will output the whole file content to ensure consistency.
 
 export const LodModal: React.FC<{
     isOpen: boolean; lods: string[]; activeLod: string; onClose: () => void;
@@ -349,12 +357,10 @@ export const ProjectModal: React.FC<{
                 
                 {mode === 'list' ? (
                     <div className="flex-1 overflow-y-auto pr-1">
-                         {/* GRID LAYOUT FOR PROJECTS */}
                         <div className="grid grid-cols-2 gap-4">
                             {projects.length === 0 && <div className="col-span-2 text-center py-10 text-theme-textMuted text-xs">Nenhum projeto encontrado.</div>}
                             {projects.map(p => (
                                 <div key={p.id} className="relative aspect-video rounded-2xl overflow-hidden cursor-pointer group border border-theme-divider hover:border-theme-orange transition-all shadow-lg" onClick={() => onSelect(p.id)}>
-                                    {/* Cover Image Background */}
                                     <div className="absolute inset-0 bg-theme-bg">
                                         {p.coverUrl ? (
                                             <img src={p.coverUrl} className="w-full h-full object-cover opacity-60 group-hover:opacity-80 transition-opacity" />
@@ -364,7 +370,6 @@ export const ProjectModal: React.FC<{
                                         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
                                     </div>
                                     
-                                    {/* Content */}
                                     <div className="absolute inset-0 p-4 flex flex-col justify-end items-start z-10">
                                         <div className="flex items-center gap-3 w-full mb-1">
                                              {p.logoUrl ? <img src={p.logoUrl} className="w-8 h-8 rounded-lg object-contain bg-white/10 backdrop-blur-sm" /> : <span className="material-symbols-outlined text-white/50">folder</span>}
@@ -373,14 +378,12 @@ export const ProjectModal: React.FC<{
                                         <span className="text-[9px] text-white/60 font-medium">Atualizado: {new Date(p.updatedAt).toLocaleDateString()}</span>
                                     </div>
 
-                                    {/* Actions */}
                                     <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20">
                                         <button onClick={(e) => { e.stopPropagation(); startEdit(p); }} className="bg-black/50 text-white p-1.5 rounded-lg hover:bg-theme-orange backdrop-blur-sm"><span className="material-symbols-outlined text-sm">edit</span></button>
                                         <button onClick={(e) => { e.stopPropagation(); if(confirm('Excluir projeto?')) onDelete(p.id); }} className="bg-black/50 text-white p-1.5 rounded-lg hover:bg-red-500 backdrop-blur-sm"><span className="material-symbols-outlined text-sm">delete</span></button>
                                     </div>
                                 </div>
                             ))}
-                            {/* Add New Card */}
                             <button className="aspect-video rounded-2xl border-2 border-dashed border-theme-divider hover:border-theme-orange hover:bg-theme-highlight flex flex-col items-center justify-center gap-2 transition-all group" onClick={() => { setName(''); setLogo(''); setCover(''); setMode('create'); }}>
                                 <span className="material-symbols-outlined text-3xl text-theme-textMuted group-hover:text-theme-orange transition-colors">add_circle</span>
                                 <span className="text-[10px] font-bold text-theme-textMuted uppercase">Novo Projeto</span>
@@ -391,7 +394,6 @@ export const ProjectModal: React.FC<{
                     <div className="space-y-6">
                         <div><label className="block text-[10px] uppercase font-bold text-theme-textMuted mb-2">Nome do Projeto</label><input className="w-full bg-theme-bg border border-theme-divider rounded-lg px-4 py-3 text-sm text-theme-text outline-none focus:border-theme-orange font-bold" value={name} onChange={e => setName(e.target.value)} placeholder="Ex: Residencial Skyline" /></div>
                         
-                        {/* LOGO SELECTION */}
                         <div className="flex items-center gap-4 p-3 border border-theme-divider rounded-xl bg-theme-bg/50">
                             <div onClick={() => logoInputRef.current?.click()} className="w-16 h-16 rounded-xl border border-dashed border-theme-textMuted flex items-center justify-center cursor-pointer hover:border-theme-orange overflow-hidden relative bg-theme-card">
                                 {logo ? <img src={logo} className="w-full h-full object-cover" /> : <span className="material-symbols-outlined text-theme-textMuted">image</span>}
@@ -406,7 +408,6 @@ export const ProjectModal: React.FC<{
                             </div>
                         </div>
 
-                        {/* COVER SELECTION */}
                         <div>
                              <label className="block text-[10px] uppercase font-bold text-theme-textMuted mb-2">Imagem de Capa (Fundo)</label>
                              <div onClick={() => coverInputRef.current?.click()} className="w-full h-32 rounded-xl border border-dashed border-theme-textMuted flex flex-col items-center justify-center cursor-pointer hover:border-theme-orange overflow-hidden relative bg-theme-card group">

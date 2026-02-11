@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect, useState, useRef } from 'react';
-import { Project, Event } from '../types';
+import { Project, Event, DependencyType } from '../types';
 
 interface TimelineProps {
     project: Project | null;
@@ -8,16 +8,40 @@ interface TimelineProps {
     setZoomLevel: (z: number) => void;
     onBarClick: (scopeId: string, eventId: string) => void;
     onBarContextMenu: (scopeId: string, eventId: string) => void;
-    onAddDependency?: (sourceId: string, targetId: string, type: 'FS' | 'SS' | 'FF' | 'SF') => void;
+    onAddDependency?: (sourceId: string, targetId: string, type: DependencyType) => void;
 }
 
-const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, setZoomLevel, onBarClick, onBarContextMenu, onAddDependency }) => {
-    const [eventCoords, setEventCoords] = useState<Record<string, { x: number; y: number; w: number; h: number }>>({});
+interface DragState {
+    sourceId: string;
+    sourceSide: 'start' | 'end';
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+}
+
+interface Coords {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+}
+
+const Timeline: React.FC<TimelineProps> = ({ 
+    project, 
+    isExecuted, 
+    zoomLevel, 
+    setZoomLevel, 
+    onBarClick, 
+    onBarContextMenu, 
+    onAddDependency 
+}) => {
+    const [eventCoords, setEventCoords] = useState<Record<string, Coords>>({});
     const [scopeCoords, setScopeCoords] = useState<Record<string, { x: number; y: number }>>({});
     const [activeStartScope, setActiveStartScope] = useState<string | null>(null);
     
     // Drag and Drop Dependency State
-    const [dragState, setDragState] = useState<{ sourceId: string; sourceSide: 'start' | 'end'; startX: number; startY: number; currentX: number; currentY: number } | null>(null);
+    const [dragState, setDragState] = useState<DragState | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
     const totalWidth = useMemo(() => {
@@ -111,23 +135,26 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
 
     useEffect(() => {
         if (!project) return;
-        // Pequeno delay para garantir que o DOM atualizou com as novas alturas
+        
+        // Pequeno delay para garantir que o DOM atualizou com as novas alturas antes de calcular coordenadas
         const timer = setTimeout(() => {
-            const coords: Record<string, { x: number; y: number; w: number; h: number }> = {};
+            const coords: Record<string, Coords> = {};
             const sCoords: Record<string, { x: number; y: number }> = {};
             const timelineId = isExecuted ? 'executed-timeline' : 'planned-timeline';
             const timelineElement = document.getElementById(timelineId);
             
             if (!timelineElement) return;
 
+            const parentRect = timelineElement.getBoundingClientRect();
+
             project.scopes.forEach(s => {
                 const sStart = !isExecuted && s.plannedStartDate ? s.plannedStartDate : s.startDate;
                 const sPosPercent = getPositionPercent(sStart);
                 const rowId = `scope-row-${s.id}-${isExecuted ? 'exe' : 'pla'}`;
                 const rowEl = document.getElementById(rowId);
+                
                 if(rowEl) {
                     const rect = rowEl.getBoundingClientRect();
-                    const parentRect = timelineElement.getBoundingClientRect();
                      sCoords[s.id] = {
                         x: (sPosPercent / 100) * totalWidth,
                         y: (rect.top - parentRect.top) + (rect.height / 2)
@@ -139,7 +166,6 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
                     const el = document.getElementById(elId);
                     if (el) {
                         const rect = el.getBoundingClientRect();
-                        const parentRect = timelineElement.getBoundingClientRect();
                         coords[ev.id] = {
                             x: rect.left - parentRect.left + timelineElement.scrollLeft,
                             y: rect.top - parentRect.top,
@@ -152,6 +178,7 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
             setEventCoords(coords);
             setScopeCoords(sCoords);
         }, 100);
+
         return () => clearTimeout(timer);
     }, [project, zoomLevel, isExecuted, totalWidth]);
 
@@ -199,12 +226,12 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
         if (dragState.sourceId === targetId) return; // Cannot link to self
 
         // Determine Dependency Type
-        let type: 'FS' | 'SS' | 'FF' | 'SF' = 'FS';
+        let type: DependencyType = 'FS';
         
-        if (dragState.sourceSide === 'end' && targetSide === 'start') type = 'FS'; // Finish-to-Start (Standard)
-        else if (dragState.sourceSide === 'start' && targetSide === 'start') type = 'SS'; // Start-to-Start
-        else if (dragState.sourceSide === 'end' && targetSide === 'end') type = 'FF'; // Finish-to-Finish
-        else if (dragState.sourceSide === 'start' && targetSide === 'end') type = 'SF'; // Start-to-Finish
+        if (dragState.sourceSide === 'end' && targetSide === 'start') type = 'FS'; 
+        else if (dragState.sourceSide === 'start' && targetSide === 'start') type = 'SS';
+        else if (dragState.sourceSide === 'end' && targetSide === 'end') type = 'FF';
+        else if (dragState.sourceSide === 'start' && targetSide === 'end') type = 'SF';
 
         onAddDependency(dragState.sourceId, targetId, type);
         setDragState(null);
@@ -214,9 +241,6 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
         if (dragState) {
             window.addEventListener('mousemove', handleDragMove);
             window.addEventListener('mouseup', handleDragEnd);
-        } else {
-            window.removeEventListener('mousemove', handleDragMove);
-            window.removeEventListener('mouseup', handleDragEnd);
         }
         return () => {
             window.removeEventListener('mousemove', handleDragMove);
@@ -235,9 +259,8 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
     }
 
     const months = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"];
-    const ROW_HEIGHT = 50; // Altura de cada "linha" de evento empilhada
-    const HEADER_HEIGHT = 40; // Espaço extra no topo da linha
-
+    const ROW_HEIGHT = 50;
+    
     return (
         <div 
             id={isExecuted ? 'executed-timeline' : 'planned-timeline'} 
@@ -262,7 +285,7 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
                     </defs>
                 </svg>
 
-                {/* Scope Start Tags */}
+                {/* Tags de Início de Escopo */}
                 <div className="flex bg-transparent h-12 relative border-b border-theme-divider no-print">
                     <div className="w-64 shrink-0 border-r border-theme-divider" />
                     <div className="flex-1 relative">
@@ -271,7 +294,6 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
                                 <div className={`px-2 py-0.5 rounded-full text-[8px] font-bold text-white shadow-lg whitespace-nowrap backdrop-blur-sm border transition-all ${activeStartScope === tag.id ? 'scale-110 ring-2 ring-white ring-opacity-50' : 'border-white/20 hover:scale-105'}`} style={{ backgroundColor: tag.color + 'aa' }}>
                                     INÍCIO {tag.name}
                                 </div>
-                                {/* Date Tooltip on Click */}
                                 {activeStartScope === tag.id && (
                                     <div className="absolute top-full mt-1 bg-black/80 text-white text-[9px] px-2 py-1 rounded font-mono animate-fadeIn whitespace-nowrap z-[70]">
                                         {new Date(tag.date).toLocaleDateString()}
@@ -311,7 +333,7 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
                     <span className="text-theme-textMuted font-bold text-[9px] uppercase tracking-[0.5em] ml-10">Cronograma</span>
                 </div>
 
-                {/* DRAGGING LINE (SVG OVERLAY) */}
+                {/* Dragging Line */}
                 <svg className="absolute inset-0 pointer-events-none z-[100] overflow-visible" style={{ width: '100%', height: '100%' }}>
                     {dragState && (
                         <path 
@@ -325,7 +347,7 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
                     )}
                 </svg>
 
-                {/* Layer 1: Scope to First Event Connector (Organic Curved Lines) */}
+                {/* Layer 1: Scope Connector */}
                 <svg className="absolute inset-0 pointer-events-none z-30 overflow-visible" style={{ width: '100%', height: '100%' }}>
                     {project.scopes.map(s => {
                         if(!s.events || s.events.length === 0) return null;
@@ -361,7 +383,7 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
                     })}
                 </svg>
 
-                {/* Layer 2: Dependency Lines (Organic Curves) */}
+                {/* Layer 2: Dependency Lines */}
                 <svg className="absolute inset-0 pointer-events-none z-30 overflow-visible" style={{ width: '100%', height: '100%' }}>
                     {project.scopes.map(s => s.events.map(ev => ev.dependencies?.map(dep => {
                         const from = eventCoords[dep.id];
@@ -404,34 +426,18 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
                             {Array.from({ length: 48 }).map((_, i) => (
                                 <div key={i} className={`flex-1 border-r border-theme-divider ${i % 4 === 3 ? 'opacity-100' : 'opacity-30'}`} />
                             ))}
-                            
-                            {/* NEW: PRECISE START LINE LOGIC */}
                             {activeStartScope && (
                                 (() => {
                                     const tag = scopeStartTags.find(t => t.id === activeStartScope);
                                     if (tag) {
                                         return (
                                             <>
-                                                {/* Week Highlight (Background) */}
-                                                <div 
-                                                    className="absolute top-0 bottom-0 z-0 opacity-10 transition-all duration-300 pointer-events-none"
-                                                    style={{ 
-                                                        left: `${tag.pos}%`, 
-                                                        width: `${(7 / 365) * 100}%`, 
-                                                        backgroundColor: tag.color 
-                                                    }}
-                                                />
-                                                {/* Precise Start Line (Neon) */}
-                                                <div 
-                                                    className="absolute top-0 bottom-0 z-10 w-[1px] shadow-[0_0_10px_rgba(255,255,255,0.8)] animate-fadeIn"
-                                                    style={{ 
-                                                        left: `${tag.pos}%`, 
-                                                        backgroundColor: tag.color 
-                                                    }}
-                                                />
+                                                <div className="absolute top-0 bottom-0 z-0 opacity-10 transition-all duration-300 pointer-events-none" style={{ left: `${tag.pos}%`, width: `${(7 / 365) * 100}%`, backgroundColor: tag.color }} />
+                                                <div className="absolute top-0 bottom-0 z-10 w-[1px] shadow-[0_0_10px_rgba(255,255,255,0.8)] animate-fadeIn" style={{ left: `${tag.pos}%`, backgroundColor: tag.color }} />
                                             </>
                                         );
                                     }
+                                    return null;
                                 })()
                             )}
                         </div>
@@ -444,10 +450,10 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
                         </div>
                     )}
 
-                    {/* Scopes */}
+                    {/* Scopes & Events */}
                     {project.scopes.map(s => {
                         const { layout, maxRows } = getScopeLayout(s.events);
-                        const rowHeightPx = Math.max(90, (maxRows * ROW_HEIGHT) + 30); // Altura dinâmica baseada no nº de linhas empilhadas
+                        const rowHeightPx = Math.max(90, (maxRows * ROW_HEIGHT) + 30);
 
                         return (
                             <div 
@@ -456,7 +462,6 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
                                 className="flex w-full relative group items-center border-b border-theme-divider hover:bg-theme-highlight transition-colors"
                                 style={{ height: `${rowHeightPx}px` }}
                             >
-                                {/* Sticky Scope Header - CHANGED: Shows Leader Name */}
                                 <div className="w-64 shrink-0 z-50 flex justify-end pr-6 sticky left-0 backdrop-blur-md h-full py-5 border-r border-theme-divider">
                                     <div className="flex flex-col items-end mt-2">
                                         <div className="px-3 py-1.5 rounded-lg bg-theme-card border border-theme-divider shadow-lg transition-all group-hover:border-theme-orange/30 group-hover:translate-x-1" style={{ borderLeft: `4px solid ${s.colorClass}` }}>
@@ -466,21 +471,16 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
                                     </div>
                                 </div>
                                 
-                                {/* Events Bars */}
                                 <div className="flex-1 relative h-full">
                                     {s.events.map(ev => {
                                         const effectiveStartDate = (!isExecuted && ev.plannedStartDate) ? ev.plannedStartDate : ev.startDate;
                                         const effectiveEndDate = (!isExecuted && ev.plannedEndDate) ? ev.plannedEndDate : ev.endDate;
 
-                                        // Position logic for Planned or Base Executed Bar
                                         const l = getPositionPercent(effectiveStartDate);
                                         const w = getPositionPercent(effectiveEndDate) - l;
-                                        
-                                        // Vertical Position (Stacking)
                                         const rowIndex = layout[ev.id] || 0;
-                                        const topPos = (rowIndex * ROW_HEIGHT) + 20; // 20px padding top
+                                        const topPos = (rowIndex * ROW_HEIGHT) + 20;
 
-                                        // EXTENSION LOGIC (RED BAR)
                                         let extensionWidth = 0;
                                         let hasExtension = false;
                                         let mainBarWidth = w; 
@@ -493,7 +493,6 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
                                                 hasExtension = true;
                                                 const l_plannedEnd = getPositionPercent(ev.plannedEndDate);
                                                 const l_actualEnd = getPositionPercent(ev.endDate);
-                                                
                                                 mainBarWidth = l_plannedEnd - l;
                                                 extensionWidth = l_actualEnd - l_plannedEnd;
                                             }
@@ -502,12 +501,10 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
                                         let borderColor = s.colorClass;
                                         let bgColor = s.colorClass + '20'; 
                                         
-                                        if (isExecuted) {
-                                            if (ev.completed) {
-                                                borderColor = '#10B981';
-                                                bgColor = '#10B98130';
-                                            }
-                                        } else {
+                                        if (isExecuted && ev.completed) {
+                                            borderColor = '#10B981';
+                                            bgColor = '#10B98130';
+                                        } else if (!isExecuted) {
                                             borderColor = '#71717a';
                                             bgColor = '#27272a';
                                         }
@@ -517,20 +514,10 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
                                                 key={ev.id}
                                                 id={`${isExecuted ? 'exe' : 'pla'}-ev-${ev.id}`}
                                                 className={`absolute h-10 flex flex-col items-center justify-center z-40 group/bar transition-transform hover:-translate-y-1 ${!isExecuted ? 'pointer-events-none opacity-60 grayscale' : ''}`}
-                                                style={{ 
-                                                    left: `${l}%`, 
-                                                    width: `${Math.max(mainBarWidth + extensionWidth, 4)}%`,
-                                                    top: `${topPos}px`
-                                                }}
-                                                onClick={() => {
-                                                    if (isExecuted && !dragState) onBarClick(s.id, ev.id);
-                                                }}
-                                                onContextMenu={(e) => {
-                                                    e.preventDefault();
-                                                    if (isExecuted) onBarContextMenu(s.id, ev.id);
-                                                }}
+                                                style={{ left: `${l}%`, width: `${Math.max(mainBarWidth + extensionWidth, 4)}%`, top: `${topPos}px` }}
+                                                onClick={() => { if (isExecuted && !dragState) onBarClick(s.id, ev.id); }}
+                                                onContextMenu={(e) => { e.preventDefault(); if (isExecuted) onBarContextMenu(s.id, ev.id); }}
                                             >
-                                                {/* NODE HANDLES (Visible on Hover) */}
                                                 {isExecuted && (
                                                     <>
                                                         <div 
@@ -548,39 +535,21 @@ const Timeline: React.FC<TimelineProps> = ({ project, isExecuted, zoomLevel, set
                                                     </>
                                                 )}
 
-                                                {/* CHANGED: Action Responsible permanently visible */}
                                                 <div className="absolute -top-3 left-0 bg-theme-bg/80 backdrop-blur-sm border border-theme-divider px-1 rounded-sm z-50 whitespace-nowrap pointer-events-none">
                                                     <span className="text-[6px] font-black text-theme-textMuted uppercase tracking-wider">
                                                         {ev.resp.split(' ')[0]} {hasExtension && <span className="text-red-500">(!ATRASO)</span>}
                                                     </span>
                                                 </div>
                                                 
-                                                {/* Container for bars */}
                                                 <div className={`w-full h-full relative flex ${isExecuted ? 'cursor-grab active:cursor-grabbing' : ''}`}>
-                                                    {/* Main Bar (Planned Portion) */}
                                                     <div 
                                                         className={`h-full rounded-md border flex items-center justify-center px-2 shadow-lg overflow-hidden relative ${hasExtension ? 'rounded-r-none border-r-0' : ''}`}
-                                                        style={{ 
-                                                            borderColor: borderColor,
-                                                            backgroundColor: bgColor,
-                                                            borderLeftWidth: '3px',
-                                                            width: hasExtension ? `${(mainBarWidth / (mainBarWidth + extensionWidth)) * 100}%` : '100%'
-                                                        }}
+                                                        style={{ borderColor: borderColor, backgroundColor: bgColor, borderLeftWidth: '3px', width: hasExtension ? `${(mainBarWidth / (mainBarWidth + extensionWidth)) * 100}%` : '100%' }}
                                                     >
-                                                        <span className="text-[8px] font-bold uppercase text-white truncate text-center tracking-tight z-10 relative drop-shadow-md select-none">
-                                                            {ev.title}
-                                                        </span>
+                                                        <span className="text-[8px] font-bold uppercase text-white truncate text-center tracking-tight z-10 relative drop-shadow-md select-none">{ev.title}</span>
                                                     </div>
-
-                                                    {/* Extension Bar (Red Delay) */}
                                                     {hasExtension && (
-                                                        <div 
-                                                            className="h-full rounded-r-md border border-red-500 bg-red-500/80 flex items-center justify-center shadow-lg relative"
-                                                            style={{ 
-                                                                width: `${(extensionWidth / (mainBarWidth + extensionWidth)) * 100}%`,
-                                                                borderLeft: 'none'
-                                                            }}
-                                                        >
+                                                        <div className="h-full rounded-r-md border border-red-500 bg-red-500/80 flex items-center justify-center shadow-lg relative" style={{ width: `${(extensionWidth / (mainBarWidth + extensionWidth)) * 100}%`, borderLeft: 'none' }}>
                                                              <span className="material-symbols-outlined text-[10px] text-white animate-pulse">warning</span>
                                                         </div>
                                                     )}

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { INITIAL_DB } from './constants';
-import { DB, ChatMessage, Project, Event, Company } from './types';
+import { DB, ChatMessage, DependencyType } from './types';
 import { generateChatResponse } from './services/geminiService';
 import {
     LodModal, CompanyModal, ProjectModal, ScopeModal, EventModal,
@@ -12,6 +12,7 @@ const STORAGE_KEY = 'design_board_db_v1';
 const THEME_KEY = 'design_board_theme_v1';
 
 export const App = () => {
+    // --- STATE: Data & Config ---
     const [db, setDb] = useState<DB>(() => {
         const savedDb = localStorage.getItem(STORAGE_KEY);
         return savedDb ? JSON.parse(savedDb) : INITIAL_DB;
@@ -22,22 +23,26 @@ export const App = () => {
         return savedTheme || 'dark';
     });
 
-    const [deadlineRespFilter, setDeadlineRespFilter] = useState('');
+    // --- STATE: UI Filters & View ---
     const [logSearch, setLogSearch] = useState('');
     const [logAuthorFilter, setLogAuthorFilter] = useState('');
-    
     const [zoomLevel, setZoomLevel] = useState<number>(1);
-    
-    const [activityImage, setActivityImage] = useState<string | undefined>(undefined);
-    const activityFileRef = useRef<HTMLInputElement>(null);
     const [activeHealthTab, setActiveHealthTab] = useState<'total' | 'progress' | 'done' | 'efficiency'>('efficiency');
+    const [memberFilter, setMemberFilter] = useState<string | null>(null);
     const [viewingImage, setViewingImage] = useState<string | null>(null);
     const [notification, setNotification] = useState<string | null>(null);
 
-    // Team Filter State
-    const [memberFilter, setMemberFilter] = useState<string | null>(null);
+    // --- STATE: Interaction / Selection ---
+    const [activityImage, setActivityImage] = useState<string | undefined>(undefined);
+    const activityFileRef = useRef<HTMLInputElement>(null);
+    
+    const [editingScopeId, setEditingScopeId] = useState<string | null>(null);
+    const [editingEventId, setEditingEventId] = useState<string | null>(null);
+    const [selectedScopeIdForFiles, setSelectedScopeIdForFiles] = useState<string | null>(null);
+    const [activeScopeIdForEvent, setActiveScopeIdForEvent] = useState<string | null>(null);
+    const [activeChecklistIds, setActiveChecklistIds] = useState<{ sid: string; eid: string } | null>(null);
 
-    // Modals state
+    // --- STATE: Modals ---
     const [showLodModal, setShowLodModal] = useState(false);
     const [showCompanyModal, setShowCompanyModal] = useState(false);
     const [showProjectModal, setShowProjectModal] = useState(false);
@@ -49,20 +54,14 @@ export const App = () => {
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [showAdminModal, setShowAdminModal] = useState(false);
 
-    // Chat
+    // --- STATE: Chat ---
     const [showAIChat, setShowAIChat] = useState(false);
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [aiLoading, setAiLoading] = useState(false);
     const [userInput, setUserInput] = useState('');
     const chatEndRef = useRef<HTMLDivElement>(null);
 
-    // Selection IDs
-    const [editingScopeId, setEditingScopeId] = useState<string | null>(null);
-    const [editingEventId, setEditingEventId] = useState<string | null>(null);
-    const [selectedScopeIdForFiles, setSelectedScopeIdForFiles] = useState<string | null>(null);
-    const [activeScopeIdForEvent, setActiveScopeIdForEvent] = useState<string | null>(null);
-    const [activeChecklistIds, setActiveChecklistIds] = useState<{ sid: string; eid: string } | null>(null);
-
+    // --- EFFECTS ---
     useEffect(() => {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
     }, [db]);
@@ -76,6 +75,7 @@ export const App = () => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [chatMessages]);
 
+    // --- COMPUTED VALUES ---
     const activeProject = useMemo(() => {
         return db.projects.find(p => p.id === db.activeProjectId) || null;
     }, [db.projects, db.activeProjectId]);
@@ -94,17 +94,15 @@ export const App = () => {
         return scope?.events.find(e => e.id === editingEventId) || null;
     }, [activeProject, activeScopeIdForEvent, editingEventId]);
 
-    // Calculate Team Stats
     const teamStats = useMemo(() => {
         const stats: Record<string, { count: number; leaderOf: string[] }> = {};
         db.team.forEach(t => { stats[t] = { count: 0, leaderOf: [] }; });
 
         if (activeProject) {
             activeProject.scopes.forEach(s => {
-                if (stats[s.resp]) {
-                    if (!stats[s.resp]) stats[s.resp] = { count: 0, leaderOf: [] };
-                    stats[s.resp].leaderOf.push(s.name);
-                }
+                if (!stats[s.resp]) stats[s.resp] = { count: 0, leaderOf: [] };
+                stats[s.resp].leaderOf.push(s.name);
+                
                 s.events.forEach(e => {
                     if (stats[e.resp]) {
                          stats[e.resp].count++;
@@ -117,7 +115,6 @@ export const App = () => {
         return stats;
     }, [activeProject, db.team]);
 
-    // Dynamic Bounds
     const projectBounds = useMemo(() => {
         if (!activeProject || activeProject.scopes.length === 0) {
             return activeProject 
@@ -150,53 +147,39 @@ export const App = () => {
         };
     }, [activeProject]);
 
-    // Global Progress
     const globalProgress = useMemo(() => {
         if (!activeProject) return 0;
-        
         const start = new Date(activeProject.timelineStart).getTime();
         const end = new Date(activeProject.timelineEnd).getTime();
         const now = new Date().getTime();
-        
         if (now < start) return 0;
         if (now > end) return 100;
-        
         const total = end - start;
         const elapsed = now - start;
-        
         if (total <= 0) return 0;
         return Math.min(Math.max((elapsed / total) * 100, 0), 100);
     }, [activeProject]);
 
-    // Hours Spent
     const hoursSpent = useMemo(() => {
         if (!activeProject) return 0;
-        
         const start = new Date(projectBounds.start);
         const endCap = new Date(projectBounds.end);
         const now = new Date();
-        
         const calcEnd = now < endCap ? now : endCap;
-        
         if (calcEnd < start) return 0;
 
         let businessDays = 0;
         const cur = new Date(start);
         while (cur <= calcEnd) {
             const dayOfWeek = cur.getDay();
-            if (dayOfWeek !== 0 && dayOfWeek !== 6) { 
-                businessDays++;
-            }
+            if (dayOfWeek !== 0 && dayOfWeek !== 6) businessDays++;
             cur.setDate(cur.getDate() + 1);
         }
-
         return businessDays * 8;
     }, [activeProject, projectBounds]);
 
-    // Wave Path
     const wavePath = useMemo(() => {
         if (!activeProject) return "M0,100 L100,100";
-
         const start = new Date(projectBounds.start).getTime();
         const end = new Date(projectBounds.end).getTime();
         const duration = end - start;
@@ -235,6 +218,7 @@ export const App = () => {
         return d;
     }, [activeProject, projectBounds]);
 
+    // --- ACTIONS & HANDLERS ---
     const getNowString = () => {
         const d = new Date();
         return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -275,26 +259,23 @@ export const App = () => {
         addLog("SISTEMA", `ARQUIVO VINCULADO: ${label}`);
     };
 
-    const onDeleteEvent = (sid: string, eid: string) => {
-        if (!activeProject) return;
-        setDb(prev => ({ ...prev, projects: prev.projects.map(p => p.id === activeProject.id ? { ...p, updatedAt: new Date().toISOString(), scopes: p.scopes.map(s => s.id === sid ? { ...s, events: s.events.filter(e => e.id !== eid) } : s) } : p) }));
-        addLog("SISTEMA", `AÇÃO REMOVIDA`);
-    };
     const onToggleDependency = (sid: string, eid: string, targetId: string) => {
         setDb(prev => ({ ...prev, projects: prev.projects.map(p => p.id === activeProject?.id ? { ...p, scopes: p.scopes.map(s => s.id === sid ? { ...s, events: s.events.map(ev => ev.id === eid ? { ...ev, dependencies: ev.dependencies?.find(d => d.id === targetId) ? ev.dependencies.filter(d => d.id !== targetId) : [...(ev.dependencies||[]), { id: targetId, type: 'FS' as const }] } : ev) } : s) } : p) }));
     };
+
     const onChangeDependencyType = (sid: string, eid: string, targetId: string) => {
-        const types = ['FS', 'SS', 'FF', 'SF'] as const;
+        const types: DependencyType[] = ['FS', 'SS', 'FF', 'SF'];
         setDb(prev => ({ ...prev, projects: prev.projects.map(p => p.id === activeProject?.id ? { ...p, scopes: p.scopes.map(s => s.id === sid ? { ...s, events: s.events.map(ev => ev.id === eid ? { ...ev, dependencies: (ev.dependencies||[]).map(d => d.id === targetId ? { ...d, type: types[(types.indexOf(d.type)+1)%types.length] } : d) } : ev) } : s) } : p) }));
     };
     
-    const onAddDependency = (sourceId: string, targetId: string, type: 'FS' | 'SS' | 'FF' | 'SF') => {
+    const onAddDependency = (sourceId: string, targetId: string, type: DependencyType) => {
         if (!activeProject) return;
         const sourceScope = activeProject.scopes.find(s => s.events.some(e => e.id === sourceId));
         if (!sourceScope) return;
         const targetScope = activeProject.scopes.find(s => s.events.some(e => e.id === targetId));
         if (!targetScope) return;
         const targetEvent = targetScope.events.find(e => e.id === targetId);
+        
         if (targetEvent?.dependencies?.some(d => d.id === sourceId)) {
             setNotification("Vínculo já existe!");
             setTimeout(() => setNotification(null), 2000);
@@ -332,6 +313,7 @@ export const App = () => {
         }));
     };
 
+    // --- IMPORT / EXPORT / PRINT ---
     const exportHTML = () => {
         const clone = document.documentElement.cloneNode(true) as HTMLElement;
         
@@ -371,12 +353,12 @@ export const App = () => {
             }
         });
 
-        // 2. CLEANUP: Remove React Scripts & Interactive Elements that won't work
+        // 2. CLEANUP: Remove React Scripts & Interactive Elements that won't work in static HTML
         const scripts = clone.querySelectorAll('script');
         scripts.forEach(script => {
             const src = script.getAttribute('src') || '';
             const content = script.innerHTML || '';
-            // Keep Tailwind, remove everything else (especially module scripts that try to load React)
+            // Keep Tailwind, remove everything else
             if (!src.includes('tailwindcss') && !content.includes('tailwind.config')) {
                 script.remove();
             }
@@ -399,41 +381,6 @@ export const App = () => {
         stateScript.type = "application/json";
         stateScript.textContent = JSON.stringify(db);
         clone.querySelector('body')?.appendChild(stateScript);
-
-        // 4. VIEWER SCRIPT: Add Banner & Disable Interactions
-        const viewerScript = document.createElement('script');
-        viewerScript.textContent = `
-            window.onload = function() {
-                // Banner Styling
-                const banner = document.createElement('div');
-                banner.style.cssText = 'position:fixed;top:0;left:0;right:0;height:40px;background:#E86C3F;color:white;display:flex;align-items:center;justify-content:center;font-family:sans-serif;font-weight:bold;font-size:12px;text-transform:uppercase;letter-spacing:1px;z-index:99999;box-shadow:0 2px 10px rgba(0,0,0,0.3);';
-                banner.innerHTML = '<span style="margin-right:15px;">⚠️ MODO SNAPSHOT (LEITURA)</span> <span style="opacity:0.8;font-weight:400;">| Para editar, use a opção "Carregar Backup" na aplicação original.</span>';
-                document.body.prepend(banner);
-                document.body.style.paddingTop = '40px';
-
-                // Disable Interactions
-                const disableElement = (el) => {
-                    el.style.pointerEvents = 'none';
-                    el.style.opacity = '0.7';
-                    el.setAttribute('readonly', 'true');
-                    el.setAttribute('disabled', 'true');
-                };
-
-                // Disable Inputs
-                document.querySelectorAll('input, textarea, select').forEach(disableElement);
-
-                // Disable Buttons (except maybe print if we had one specific class, but generic disable is safer)
-                document.querySelectorAll('button').forEach(btn => {
-                    // Let the print logic (if any existing native browser print) work, but disable app logic
-                    btn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); alert('Arquivo em Modo Leitura. Importe para editar.'); };
-                    btn.style.cursor = 'not-allowed';
-                    btn.title = "Modo Leitura";
-                });
-                
-                console.log("Design Board Snapshot Loaded.");
-            };
-        `;
-        clone.querySelector('body')?.appendChild(viewerScript);
 
         const htmlContent = `<!DOCTYPE html>\n${clone.outerHTML}`;
         const blob = new Blob([htmlContent], { type: 'text/html' });
@@ -485,6 +432,7 @@ export const App = () => {
 
     const printDashboard = () => { window.print(); addLog("SISTEMA", "DASHBOARD ENVIADO PARA IMPRESSÃO"); };
 
+    // --- STATISTICS & HEALTH ---
     const filteredActivities = useMemo(() => {
         if (!activeProject) return [];
         return activeProject.activities.filter(a => {
@@ -559,6 +507,7 @@ export const App = () => {
         return { label: 'DENTRO DO PRAZO', color: 'text-theme-green', border: 'border-theme-green', bg: 'bg-theme-green/10' };
     }, [activeProject, stats.rate, progressPercentage]);
 
+    // --- AI ---
     const handleAISend = async () => {
         if (!userInput.trim() || !activeProject) return;
         const query = userInput; setUserInput(''); setChatMessages(prev => [...prev, { role: 'user', text: query }]); setAiLoading(true);
@@ -964,6 +913,7 @@ export const App = () => {
                             </div>
                         </div>
                     </div>
+                </div>
             </div>
 
             <LodModal 
