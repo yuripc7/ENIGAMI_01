@@ -20,6 +20,7 @@ export interface Event {
     checklist: ChecklistItem[];
     completed: boolean;
     dependencies?: Dependency[];
+    type?: 'default' | 'protocol'; // New: Distinguish between standard actions and protocol reminders
 }
 
 export interface FileLink {
@@ -47,6 +48,21 @@ export interface Activity {
     imageUrl?: string;
 }
 
+export interface ProjectDataRow {
+    id: string;
+    order: string;
+    location: string;
+    status: 'VIÁVEL' | 'STAND BY' | 'EM ANÁLISE' | 'NÃO INICIADO';
+    landArea: string;
+    builtArea: string;
+    salesArea: string;
+    zoning: string;
+    potential: string;
+    broker: string;
+    resp: string;
+    updatedAt: string;
+}
+
 export interface Project {
     id: number;
     companyId: number;
@@ -62,6 +78,22 @@ export interface Project {
     timelineEnd: string;
     activities: Activity[];
     scopes: Scope[];
+    dataRows?: ProjectDataRow[]; // New: Data Process Rows
+    powerBiUrl?: string; // New: Power BI Embed URL
+    viabilityFiles?: FileLink[]; // New: Uploaded .pbix files
+    timeLogs?: TimeLog[]; // New: Time Tracking History
+}
+
+export interface TimeLog {
+    id: string;
+    projectId: number;
+    userId: string;
+    activity: string;
+    scopeId?: string; // New: Linked Discipline
+    eventId?: string; // New: Linked Action
+    startTime: string; // ISO String
+    endTime?: string; // ISO String or null if running
+    duration: number; // Seconds
 }
 
 export interface Company {
